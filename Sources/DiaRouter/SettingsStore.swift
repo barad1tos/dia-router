@@ -13,7 +13,14 @@ final class SettingsStore: ObservableObject {
 
     @Published private(set) var diaProfilesDetected = false
 
-    private init(defaults: UserDefaults = .standard) {
+    private convenience init() {
+        self.init(
+            defaults: .standard,
+            detectedProfiles: DiaProfileState.detectedProfiles()
+        )
+    }
+
+    init(defaults: UserDefaults, detectedProfiles: [DetectedDiaProfile]) {
         var loadedConfiguration: RouterConfiguration
         if let data = defaults.data(forKey: Self.configurationKey),
            let decoded = try? JSONDecoder().decode(RouterConfiguration.self, from: data) {
@@ -22,7 +29,6 @@ final class SettingsStore: ObservableObject {
             loadedConfiguration = .defaultConfiguration
         }
 
-        let detectedProfiles = DiaProfileState.detectedProfiles()
         if !detectedProfiles.isEmpty {
             loadedConfiguration.syncProfiles(with: detectedProfiles)
             diaProfilesDetected = true
@@ -51,7 +57,7 @@ final class SettingsStore: ObservableObject {
             pattern: "",
             profileID: targetProfile.id
         )
-        configuration.rules.append(rule)
+        configuration.rules.insert(rule, at: 0)
         return rule.id
     }
 

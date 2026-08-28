@@ -1,11 +1,19 @@
 import AppKit
 import SwiftUI
 
+private enum RuleEditorFocus: Hashable {
+    case pattern(UUID)
+    case profile(UUID)
+    case enabled(UUID)
+}
+
 struct MenuBarContentView: View {
     @EnvironmentObject private var settings: SettingsStore
+    @EnvironmentObject private var coordinator: RouterCoordinator
 
     @State private var page: Page = .rules
     @State private var hasAccessibilityPermission = DiaController.hasAccessibilityPermission
+    @FocusState private var focusedField: RuleEditorFocus?
 
     private enum Page {
         case rules
@@ -13,23 +21,26 @@ struct MenuBarContentView: View {
     }
 
     var body: some View {
-        Group {
-            switch page {
-            case .rules:
-                RulesMenuView(hasAccessibilityPermission: hasAccessibilityPermission) {
-                    withAnimation(.easeInOut(duration: 0.16)) {
-                        page = .settings
-                    }
-                }
-                .transition(.move(edge: .leading).combined(with: .opacity))
+        VStack(spacing: 0) {
+            header
 
-            case .settings:
-                MenuBarSettingsView(hasAccessibilityPermission: hasAccessibilityPermission) {
-                    withAnimation(.easeInOut(duration: 0.16)) {
-                        page = .rules
-                    }
+            Divider()
+
+            Group {
+                switch page {
+                case .rules:
+                    RulesMenuView(
+                        hasAccessibilityPermission: hasAccessibilityPermission,
+                        focusedField: $focusedField
+                    )
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+
+                case .settings:
+                    MenuBarSettingsView(
+                        hasAccessibilityPermission: hasAccessibilityPermission
+                    )
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
-                .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
         .frame(width: 500)
@@ -46,45 +57,16 @@ struct MenuBarContentView: View {
         }
     }
 
-    private func refreshAccessibilityPermission() {
-        hasAccessibilityPermission = DiaController.hasAccessibilityPermission
-    }
-}
-
-private struct RulesMenuView: View {
-    @EnvironmentObject private var settings: SettingsStore
-    @EnvironmentObject private var coordinator: RouterCoordinator
-
-    @FocusState private var focusedRuleID: UUID?
-
-    let hasAccessibilityPermission: Bool
-    let showSettings: () -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            header
-
-            Divider()
-
-            if !hasAccessibilityPermission {
-                accessibilityBanner
-                Divider()
-            }
-
-            rulesList
-
-            Divider()
-
-            addRuleButton
-        }
-    }
-
     private var header: some View {
         HStack(spacing: 10) {
             Text("Dia Router")
                 .font(.body.weight(.semibold))
 
-            if coordinator.isRouting {
+            if page == .settings {
+                Text("Settings")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if coordinator.isRouting {
                 Text(coordinator.lastMessage)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -93,13 +75,99 @@ private struct RulesMenuView: View {
 
             Spacer()
 
-            headerButton("Settings", systemImage: "gearshape", action: showSettings)
+            if page == .rules {
+                headerButton("Settings", systemImage: "gearshape", action: showSettings)
+            }
+
             headerButton("Quit Dia Router", systemImage: "power") {
                 NSApplication.shared.terminate(nil)
+            }
+
+            switch page {
+            case .rules:
+                headerButton(
+                    "Add Rule",
+                    systemImage: "plus",
+                    isContained: true,
+                    action: addRule
+                )
+            case .settings:
+                headerButton(
+                    "Back to Rules",
+                    systemImage: "chevron.left",
+                    isContained: true,
+                    action: showRules
+                )
             }
         }
         .padding(.horizontal, 14)
         .frame(height: 40)
+    }
+
+    private func showSettings() {
+        focusedField = nil
+        withAnimation(.easeInOut(duration: 0.16)) {
+            page = .settings
+        }
+    }
+
+    private func showRules() {
+        withAnimation(.easeInOut(duration: 0.16)) {
+            page = .rules
+        }
+    }
+
+    private func addRule() {
+        guard let ruleID = settings.addRule() else { return }
+        DispatchQueue.main.async {
+            focusedField = .pattern(ruleID)
+        }
+    }
+
+    private func headerButton(
+        _ help: String,
+        systemImage: String,
+        isContained: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.title3)
+                .foregroundStyle(isContained ? Color.primary : Color.secondary)
+                .frame(width: 28, height: 28)
+                .background {
+                    if isContained {
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(Color.primary.opacity(0.1))
+                    }
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(help)
+        .help(help)
+    }
+
+    private func refreshAccessibilityPermission() {
+        hasAccessibilityPermission = DiaController.hasAccessibilityPermission
+    }
+}
+
+private struct RulesMenuView: View {
+    @EnvironmentObject private var settings: SettingsStore
+
+    let hasAccessibilityPermission: Bool
+    @FocusState.Binding var focusedField: RuleEditorFocus?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if !hasAccessibilityPermission {
+                accessibilityBanner
+                Divider()
+            }
+
+            rulesList
+        }
     }
 
     private var accessibilityBanner: some View {
@@ -130,74 +198,48 @@ private struct RulesMenuView: View {
             )
             .frame(height: 150)
         } else {
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach($settings.configuration.rules) { $rule in
-                        MenuBarRuleRow(
-                            rule: $rule,
-                            profiles: settings.configuration.profiles,
-                            canMoveUp: rule.id != settings.configuration.rules.first?.id,
-                            canMoveDown: rule.id != settings.configuration.rules.last?.id,
-                            focusedRuleID: $focusedRuleID,
-                            move: { offset in
-                                settings.moveRule(id: rule.id, by: offset)
-                            },
-                            delete: {
-                                settings.deleteRule(id: rule.id)
-                            }
-                        )
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach($settings.configuration.rules) { $rule in
+                            VStack(spacing: 0) {
+                                MenuBarRuleRow(
+                                    rule: $rule,
+                                    profiles: settings.configuration.profiles,
+                                    canMoveUp: rule.id != settings.configuration.rules.first?.id,
+                                    canMoveDown: rule.id != settings.configuration.rules.last?.id,
+                                    focusedField: $focusedField,
+                                    move: { offset in
+                                        settings.moveRule(id: rule.id, by: offset)
+                                    },
+                                    delete: {
+                                        settings.deleteRule(id: rule.id)
+                                    }
+                                )
 
-                        if rule.id != settings.configuration.rules.last?.id {
-                            Divider()
-                                .padding(.leading, 38)
+                                if rule.id != settings.configuration.rules.last?.id {
+                                    Divider()
+                                        .padding(.leading, 38)
+                                }
+                            }
+                            .id(rule.id)
                         }
                     }
+                    .padding(.horizontal, 14)
                 }
-                .padding(.horizontal, 14)
+                .frame(height: rulesListHeight)
+                .onChange(of: focusedField) { _, focus in
+                    guard case let .pattern(ruleID) = focus else { return }
+                    withAnimation(.easeOut(duration: 0.16)) {
+                        proxy.scrollTo(ruleID, anchor: .top)
+                    }
+                }
             }
-            .frame(height: rulesListHeight)
         }
     }
 
     private var rulesListHeight: CGFloat {
         min(max(CGFloat(settings.configuration.rules.count) * 41, 82), 390)
-    }
-
-    private var addRuleButton: some View {
-        Button {
-            guard let ruleID = settings.addRule() else { return }
-            DispatchQueue.main.async {
-                focusedRuleID = ruleID
-            }
-        } label: {
-            Label("Add rule", systemImage: "plus")
-                .font(.body.weight(.medium))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.primary.opacity(0.08))
-                )
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .frame(height: 40)
-    }
-
-    private func headerButton(
-        _ help: String,
-        systemImage: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.title3)
-                .foregroundStyle(.secondary)
-                .frame(width: 28, height: 28)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(help)
     }
 }
 
@@ -206,7 +248,7 @@ private struct MenuBarRuleRow: View {
     let profiles: [DiaProfile]
     let canMoveUp: Bool
     let canMoveDown: Bool
-    @FocusState.Binding var focusedRuleID: UUID?
+    @FocusState.Binding var focusedField: RuleEditorFocus?
     let move: (Int) -> Void
     let delete: () -> Void
 
@@ -218,7 +260,10 @@ private struct MenuBarRuleRow: View {
                 .textFieldStyle(.plain)
                 .font(.body.weight(.medium))
                 .foregroundStyle(rule.isEnabled ? .primary : .secondary)
-                .focused($focusedRuleID, equals: rule.id)
+                .focused($focusedField, equals: .pattern(rule.id))
+                .onSubmit {
+                    focusedField = nil
+                }
                 .accessibilityLabel("\(rule.matchType.label) pattern")
 
             Picker("Profile", selection: $rule.profileID) {
@@ -229,11 +274,13 @@ private struct MenuBarRuleRow: View {
             .labelsHidden()
             .controlSize(.small)
             .frame(width: 110)
+            .focused($focusedField, equals: .profile(rule.id))
 
             Toggle("Enabled", isOn: $rule.isEnabled)
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .controlSize(.small)
+                .focused($focusedField, equals: .enabled(rule.id))
         }
         .frame(height: 40)
         .contentShape(Rectangle())
@@ -325,60 +372,22 @@ private struct MenuBarSettingsView: View {
     @State private var isMakingDefault = false
 
     let hasAccessibilityPermission: Bool
-    let goBack: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
-
-            ScrollView {
-                VStack(spacing: 14) {
-                    statusCard
-                    profilesCard
-                    testRoutingCard
-                    resetCard
-                }
-                .padding(16)
+        ScrollView {
+            VStack(spacing: 14) {
+                statusCard
+                profilesCard
+                testRoutingCard
+                resetCard
             }
-            .frame(height: 560)
+            .padding(16)
         }
+        .frame(height: 390)
         .onAppear {
             refreshDefaultBrowserStatus()
             settings.syncProfilesFromDia()
         }
-    }
-
-    private var header: some View {
-        HStack(spacing: 12) {
-            Button(action: goBack) {
-                Image(systemName: "chevron.left")
-                    .font(.body.weight(.semibold))
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Back to rules")
-
-            Text("Settings")
-                .font(.title3.weight(.semibold))
-
-            Spacer()
-
-            Button {
-                NSApplication.shared.terminate(nil)
-            } label: {
-                Image(systemName: "power")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Quit Dia Router")
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
     }
 
     private var statusCard: some View {
