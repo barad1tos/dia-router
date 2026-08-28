@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-app_path="${1:-$HOME/Applications/Dia Router.app}"
+app_path="${1:-/Applications/Dia Router.app}"
 
 if [[ ! -d "$app_path" ]]; then
     echo "Dia Router is not installed at: $app_path" >&2

@@ -7,6 +7,36 @@ struct RuleMatcherTests {
     private let personalID = RouterConfiguration.personalProfileID
 
     @Test
+    func onlyApplicationsBundleIsCanonical() {
+        #expect(ApplicationInstallation.isCanonicalBundle(
+            URL(fileURLWithPath: "/Applications/Dia Router.app", isDirectory: true)
+        ))
+        #expect(ApplicationInstallation.isCanonicalBundle(
+            URL(fileURLWithPath: "/Applications/../Applications/Dia Router.app", isDirectory: true)
+        ))
+        #expect(!ApplicationInstallation.isCanonicalBundle(
+            URL(fileURLWithPath: "/Users/example/Applications/Dia Router.app", isDirectory: true)
+        ))
+        #expect(!ApplicationInstallation.isCanonicalBundle(
+            URL(fileURLWithPath: "/tmp/Dia Router.app", isDirectory: true)
+        ))
+    }
+
+    @Test
+    func recognizesOnlyKnownLegacyRouterBundleIdentifiers() {
+        #expect(DefaultBrowserController.isLegacyBundleIdentifier(
+            "com.example.SafariProfileRouter"
+        ))
+        #expect(DefaultBrowserController.isLegacyBundleIdentifier(
+            "com.jdsimcoe.SafariProfileRouter"
+        ))
+        #expect(!DefaultBrowserController.isLegacyBundleIdentifier(
+            "com.example.UnrelatedRouter"
+        ))
+        #expect(!DefaultBrowserController.isLegacyBundleIdentifier(nil))
+    }
+
+    @Test
     func domainRuleMatchesDomainAndSubdomains() throws {
         let rule = RoutingRule(
             id: UUID(),

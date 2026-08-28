@@ -11,6 +11,7 @@ login_item_bundle="$contents_dir/Library/LoginItems/Dia Router.app"
 login_item_contents="$login_item_bundle/Contents"
 login_item_resources="$login_item_contents/Resources"
 icon_source="$project_root/Resources/Dia Router.icon"
+launch_services_register="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
 if [[ -f "$local_signing_config" ]]; then
     source "$local_signing_config"
@@ -81,5 +82,13 @@ else
 fi
 
 codesign --verify --deep --strict --verbose=2 "$app_bundle"
+
+# Building an app bundle can make Launch Services discover it even when it was
+# never opened. Keep this development artifact from competing with the copy in
+# /Applications for the app's URL schemes.
+"$launch_services_register" \
+    -u "$app_bundle/Contents/Library/LoginItems/Dia Router.app" \
+    >/dev/null 2>&1 || true
+"$launch_services_register" -u "$app_bundle" >/dev/null 2>&1 || true
 
 echo "$app_bundle"

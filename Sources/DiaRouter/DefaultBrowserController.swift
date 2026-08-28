@@ -2,17 +2,26 @@ import AppKit
 import Foundation
 
 enum DefaultBrowserController {
+    private static let legacyBundleIdentifiers = [
+        "com.example.SafariProfileRouter",
+        "com.jdsimcoe.SafariProfileRouter",
+    ]
+
     static var isDefaultRouter: Bool {
-        guard let probeURL = URL(string: "https://example.com"),
-              let applicationURL = NSWorkspace.shared.urlForApplication(toOpen: probeURL),
-              let bundle = Bundle(url: applicationURL) else {
+        guard ApplicationInstallation.isRunningFromCanonicalBundle,
+              let probeURL = URL(string: "https://example.com"),
+              let applicationURL = NSWorkspace.shared.urlForApplication(toOpen: probeURL) else {
             return false
         }
 
-        return bundle.bundleIdentifier == Bundle.main.bundleIdentifier
+        return ApplicationInstallation.refersToRunningBundle(applicationURL)
     }
 
     static func makeDefaultRouter() async throws {
+        guard ApplicationInstallation.isRunningFromCanonicalBundle else {
+            throw DefaultBrowserError.noncanonicalInstallation
+        }
+
         let applicationURL = Bundle.main.bundleURL
         try await setDefault(applicationURL: applicationURL, scheme: "http")
         try await setDefault(applicationURL: applicationURL, scheme: "https")
@@ -23,6 +32,23 @@ enum DefaultBrowserController {
             applicationURL: Bundle.main.bundleURL,
             scheme: "dia-router"
         )
+    }
+
+    static func migrateLegacyDefaultBrowserIfNeeded() async throws -> Bool {
+        guard let probeURL = URL(string: "https://example.com"),
+              let applicationURL = NSWorkspace.shared.urlForApplication(toOpen: probeURL),
+              let bundleIdentifier = Bundle(url: applicationURL)?.bundleIdentifier,
+              isLegacyBundleIdentifier(bundleIdentifier) else {
+            return false
+        }
+
+        try await makeDefaultRouter()
+        return true
+    }
+
+    static func isLegacyBundleIdentifier(_ bundleIdentifier: String?) -> Bool {
+        guard let bundleIdentifier else { return false }
+        return legacyBundleIdentifiers.contains(bundleIdentifier)
     }
 
     private static func setDefault(applicationURL: URL, scheme: String) async throws {
@@ -38,5 +64,13 @@ enum DefaultBrowserController {
                 }
             }
         }
+    }
+}
+
+private enum DefaultBrowserError: LocalizedError {
+    case noncanonicalInstallation
+
+    var errorDescription: String? {
+        "Install and launch Dia Router from /Applications/Dia Router.app before making it the default web router."
     }
 }

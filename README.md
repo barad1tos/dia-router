@@ -39,7 +39,9 @@ Favicons are loaded as consistently sized PNGs from Google's public favicon serv
 ./scripts/install-app.sh
 ```
 
-The install script places the app at `~/Applications/Dia Router.app` and launches it. The app registers its embedded login item through `SMAppService`, so macOS attributes background activity to Dia Router rather than to a shell or system helper.
+The install script always builds a fresh app, stages and verifies it, then installs it at the single canonical location: `/Applications/Dia Router.app`. It removes the legacy `~/Applications/Dia Router.app` copy before launching the canonical app. If it finds the older `/Applications/Router.app` with the known Safari Profile Router bundle ID, it transfers the default-browser setting to Dia Router when necessary, archives the old app as a ZIP in the Trash, and removes its stale Launch Services records. The app re-registers its embedded login item through `SMAppService`, so macOS attributes background activity to Dia Router rather than to a shell or system helper.
+
+Only the canonical app is allowed to register itself as a login item or URL handler. Opening the build artifact directly is safe for development and cannot displace the installed app in Launch Services.
 
 To launch the currently installed app and let it register its login item without rebuilding, run:
 
